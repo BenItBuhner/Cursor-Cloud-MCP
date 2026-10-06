@@ -40,6 +40,30 @@ describe("tools", () => {
     expect(out.injectedTurns).toBe(1);
   });
 
+  it("reports a clear auth error when no key is configured", async () => {
+    const ctx = makeContext({
+      apiKey: async () => null,
+      extendedEnabled: false,
+      fetchFn: vi.fn() as unknown as typeof fetch,
+    });
+    const tool = TOOLS.find((t) => t.name === "list_agents")!;
+    await expect(tool.handler(ctx, {})).rejects.toThrow(/No Cursor API key/);
+  });
+
+  it("resolves an async key per call", async () => {
+    let key: string | null = null;
+    const fetchFn = cannedFetch({ "v1/agents": { items: [] } });
+    const ctx = makeContext({
+      apiKey: async () => key,
+      extendedEnabled: false,
+      fetchFn,
+    });
+    const tool = TOOLS.find((t) => t.name === "list_agents")!;
+    await expect(tool.handler(ctx, {})).rejects.toThrow(/No Cursor API key/);
+    key = "late-key";
+    await expect(tool.handler(ctx, {})).resolves.toEqual({ items: [] });
+  });
+
   it("extended tools refuse when mode is off", async () => {
     const ctx = makeContext({
       apiKey: "k",

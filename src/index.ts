@@ -15,21 +15,16 @@ function has(name: string): boolean {
 }
 
 async function main(): Promise<void> {
-  const apiKey = await resolveApiKey(arg("--api-key")).catch((e: Error) => {
-    console.error(e.message);
-    process.exit(1);
-  });
-  if (!apiKey) {
-    console.error(
-      "No Cursor API key. Set CURSOR_API_KEY, pass --api-key, or run `cursor-cloud-mcp login`.",
-    );
-    process.exit(1);
-  }
-  const extended =
-    has("--extended") || has("--extended-mode") || extendedModeEnabled();
+  // Auth is resolved per call, never at startup: the server must come up even
+  // with no key yet, so a client can connect and call `cursor_status`.
+  const flagKey = arg("--api-key");
   const ctx = makeContext({
-    apiKey,
-    extendedEnabled: extended,
+    apiKey: async () => {
+      const k = flagKey?.trim() || (await resolveApiKey());
+      return k;
+    },
+    extendedEnabled:
+      has("--extended") || has("--extended-mode") || extendedModeEnabled(),
     apiBaseUrl: arg("--api-base-url") ?? CURSOR_API_BASE_URL,
     accountApiUrl: arg("--account-api-url") ?? CURSOR_ACCOUNT_API_URL,
   });

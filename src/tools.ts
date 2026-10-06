@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { AuthError, SessionCache, exchangeSession } from "./auth.js";
+import { AuthError, SessionCache } from "./auth.js";
 import { EXTENDED_MODE_OFF_MESSAGE } from "./auth.js";
 import { CursorApiClient, isInjectedTurn, parseSseEvents } from "./cursorApi.js";
 import { ExtendedApiClient } from "./extendedApi.js";
 
 export interface TriageContext {
-  apiKey: string;
+  /** Resolved per call, so the server can start before a key exists. */
+  apiKey: () => Promise<string>;
   extendedEnabled: boolean;
   apiBaseUrl?: string;
   accountApiUrl?: string;
@@ -15,25 +16,34 @@ export interface TriageContext {
 }
 
 export function makeContext(opts: {
-  apiKey: string;
+  /** Static key or a resolver; a null resolver means "auth not configured yet". */
+  apiKey: string | (() => Promise<string | null>);
   extendedEnabled: boolean;
   apiBaseUrl?: string;
   accountApiUrl?: string;
   fetchFn?: typeof fetch;
+  missingMessage?: string;
 }): TriageContext {
+  const missing =
+    opts.missingMessage ??
+    "No Cursor API key available. Set CURSOR_API_KEY, pass --api-key, or run `cursor-cloud-mcp login` (browser OAuth). Get one at https://cursor.com/dashboard/api";
+  const resolveKey = async (): Promise<string> => {
+    const v =
+      typeof opts.apiKey === "function" ? await opts.apiKey() : opts.apiKey;
+    if (!v) throw new AuthError(missing, "missing_api_key", true);
+    return v;
+  };
   const cursor = new CursorApiClient({
-    apiKey: opts.apiKey,
+    apiKey: resolveKey,
     baseUrl: opts.apiBaseUrl,
     fetchFn: opts.fetchFn,
   });
-  let sessionCache: SessionCache | null = null;
   let extended: ExtendedApiClient | null = null;
   if (opts.extendedEnabled) {
-    sessionCache = new SessionCache(async () => opts.apiKey, {
+    const cache = new SessionCache(resolveKey, {
       fetchFn: opts.fetchFn,
       apiUrl: opts.accountApiUrl,
     });
-    const cache = sessionCache;
     extended = new ExtendedApiClient({
       apiUrl: opts.accountApiUrl,
       fetchFn: opts.fetchFn,
@@ -41,7 +51,7 @@ export function makeContext(opts: {
     });
   }
   return {
-    apiKey: opts.apiKey,
+    apiKey: resolveKey,
     extendedEnabled: opts.extendedEnabled,
     apiBaseUrl: opts.apiBaseUrl,
     accountApiUrl: opts.accountApiUrl,
@@ -55,9 +65,6 @@ function requireExtended(ctx: TriageContext): ExtendedApiClient {
   if (!ctx.extendedEnabled || !ctx.extended) {
     throw new AuthError(EXTENDED_MODE_OFF_MESSAGE, "extended_mode_off", true);
   }
-  const key = ctx.apiKey;
-  void exchangeSession;
-  void key;
   return ctx.extended;
 }
 
@@ -90,9 +97,13 @@ export const TOOLS: ToolDef[] = [
     schema: {},
     handler: async (ctx) => {
       const me = await ctx.cursor.me().catch((e: Error) => ({ error: e.message }));
+      const authenticated =
+        !("error" in (me as Record<string, unknown>)) &&
+        me !== undefined &&
+        me !== null;
       return {
-        documentedApi: "ok",
-        me,
+        authenticated,
+        me: authenticated ? me : { error: (me as { error?: string }).error },
         extendedMode: ctx.extendedEnabled,
         webBase: "https://cursor.com/agents",
         note: ctx.extendedEnabled

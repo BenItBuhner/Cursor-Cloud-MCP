@@ -12,7 +12,8 @@ export class CursorApiError extends Error {
 }
 
 export interface CursorApiClientOptions {
-  apiKey: string;
+  /** Static key, or a resolver invoked per request so auth can arrive late. */
+  apiKey: string | (() => string | null | Promise<string | null>);
   baseUrl?: string;
   fetchFn?: typeof fetch;
 }
@@ -30,9 +31,27 @@ export class CursorApiClient {
     this.fetchFn = opts.fetchFn ?? fetch;
   }
 
-  private headers(extra: Record<string, string> = {}): Record<string, string> {
+  /** Resolve the current API key, awaiting an async resolver if needed. */
+  private async key(): Promise<string> {
+    const v =
+      typeof this.opts.apiKey === "function"
+        ? await this.opts.apiKey()
+        : this.opts.apiKey;
+    if (!v) {
+      throw new CursorApiError(
+        "No Cursor API key available. Set CURSOR_API_KEY, pass --api-key, or run `cursor-cloud-mcp login` (browser OAuth).",
+        401,
+        "auth",
+      );
+    }
+    return v;
+  }
+
+  private async headers(
+    extra: Record<string, string> = {},
+  ): Promise<Record<string, string>> {
     return {
-      Authorization: `Bearer ${this.opts.apiKey}`,
+      Authorization: `Bearer ${await this.key()}`,
       Accept: "application/json",
       ...extra,
     };
@@ -45,13 +64,11 @@ export class CursorApiClient {
     }
     const res = await this.fetchFn(url.toString(), {
       method,
-      headers: {
-        ...this.headers(
-          init.body !== undefined
-            ? { "Content-Type": "application/json" }
-            : {},
-        ),
-      },
+      headers: await this.headers(
+        init.body !== undefined
+          ? { "Content-Type": "application/json" }
+          : {},
+      ),
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
     if (!res.ok) {
@@ -150,7 +167,7 @@ export class CursorApiClient {
   async fetchRunStream(agentId: string, runId: string, lastEventId?: string): Promise<string> {
     const res = await this.fetchFn(this.streamUrl(agentId, runId), {
       headers: {
-        ...this.headers({ Accept: "text/event-stream" }),
+        ...(await this.headers({ Accept: "text/event-stream" })),
         ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}),
       },
     });

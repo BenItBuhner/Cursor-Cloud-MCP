@@ -13,13 +13,11 @@ function arg(name: string): string | undefined {
 }
 
 async function buildServer() {
-  const apiKey = await resolveApiKey(arg("--api-key"));
-  if (!apiKey) throw new Error("No Cursor API key (CURSOR_API_KEY / --api-key).");
-  const extended =
-    process.argv.includes("--extended") || extendedModeEnabled();
+  const flagKey = arg("--api-key");
   const ctx = makeContext({
-    apiKey,
-    extendedEnabled: extended,
+    apiKey: async () => flagKey?.trim() || (await resolveApiKey()),
+    extendedEnabled:
+      process.argv.includes("--extended") || extendedModeEnabled(),
     apiBaseUrl: arg("--api-base-url") ?? CURSOR_API_BASE_URL,
     accountApiUrl: arg("--account-api-url") ?? CURSOR_ACCOUNT_API_URL,
   });
