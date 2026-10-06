@@ -16,6 +16,8 @@ export interface CursorApiClientOptions {
   apiKey: string | (() => string | null | Promise<string | null>);
   baseUrl?: string;
   fetchFn?: typeof fetch;
+  /** Default per-request timeout; long transcripts can hold a socket open. */
+  timeoutMs?: number;
 }
 
 function join(base: string, p: string): string {
@@ -26,9 +28,11 @@ function join(base: string, p: string): string {
 export class CursorApiClient {
   private baseUrl: string;
   private fetchFn: typeof fetch;
+  private timeoutMs: number;
   constructor(private opts: CursorApiClientOptions) {
     this.baseUrl = (opts.baseUrl ?? CURSOR_API_BASE_URL).trim() || CURSOR_API_BASE_URL;
     this.fetchFn = opts.fetchFn ?? fetch;
+    this.timeoutMs = opts.timeoutMs ?? 30_000;
   }
 
   /** Resolve the current API key, awaiting an async resolver if needed. */
@@ -57,20 +61,40 @@ export class CursorApiClient {
     };
   }
 
-  private async request<T>(method: string, p: string, init: { query?: Record<string, string | number | boolean | undefined | null>; body?: unknown } = {}): Promise<T> {
+  private async request<T>(method: string, p: string, init: { query?: Record<string, string | number | boolean | undefined | null>; body?: unknown; timeoutMs?: number } = {}): Promise<T> {
     const url = new URL(join(this.baseUrl, p));
     for (const [k, v] of Object.entries(init.query ?? {})) {
       if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
     }
-    const res = await this.fetchFn(url.toString(), {
-      method,
-      headers: await this.headers(
-        init.body !== undefined
-          ? { "Content-Type": "application/json" }
-          : {},
-      ),
-      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-    });
+    // Large transcripts and busy agents can hold a connection open for a long
+    // time; a bounded wait turns a hung socket into a readable error.
+    const timeoutMs = init.timeoutMs ?? this.timeoutMs;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res: Response;
+    try {
+      res = await this.fetchFn(url.toString(), {
+        method,
+        headers: await this.headers(
+          init.body !== undefined
+            ? { "Content-Type": "application/json" }
+            : {},
+        ),
+        body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if ((e as Error).name === "AbortError") {
+        throw new CursorApiError(
+          `Cursor API ${method} ${p} timed out after ${timeoutMs}ms.`,
+          408,
+          p,
+        );
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new CursorApiError(
@@ -151,9 +175,11 @@ export class CursorApiClient {
       query: { limit: params.limit ?? 20, cursor: params.cursor },
     });
   }
-  /** Verbatim user/assistant transcript. v1 has no equivalent. */
-  conversationV0(id: string): Promise<unknown> {
-    return this.request("GET", `v0/agents/${encodeURIComponent(id)}/conversation`);
+  /** Verbatim user/assistant transcript. v1 has no equivalent; can be slow. */
+  conversationV0(id: string, timeoutMs = 120_000): Promise<unknown> {
+    return this.request("GET", `v0/agents/${encodeURIComponent(id)}/conversation`, {
+      timeoutMs,
+    });
   }
 
   streamUrl(agentId: string, runId: string): string {
@@ -164,13 +190,35 @@ export class CursorApiClient {
   }
 
   /** Fetch an SSE run stream and return raw text (caller parses with parseSseEvents). */
-  async fetchRunStream(agentId: string, runId: string, lastEventId?: string): Promise<string> {
-    const res = await this.fetchFn(this.streamUrl(agentId, runId), {
-      headers: {
-        ...(await this.headers({ Accept: "text/event-stream" })),
-        ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}),
-      },
-    });
+  async fetchRunStream(
+    agentId: string,
+    runId: string,
+    lastEventId?: string,
+    timeoutMs = 60_000,
+  ): Promise<string> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res: Response;
+    try {
+      res = await this.fetchFn(this.streamUrl(agentId, runId), {
+        headers: {
+          ...(await this.headers({ Accept: "text/event-stream" })),
+          ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}),
+        },
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if ((e as Error).name === "AbortError") {
+        throw new CursorApiError(
+          `Run stream timed out after ${timeoutMs}ms.`,
+          408,
+          "stream",
+        );
+      }
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new CursorApiError(

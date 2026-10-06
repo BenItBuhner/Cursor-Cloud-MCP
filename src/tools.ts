@@ -151,9 +151,17 @@ export const TOOLS: ToolDef[] = [
     name: "get_conversation",
     description:
       "Full verbatim user/assistant transcript (v0/conversation). v1 has no equivalent.",
-    schema: { id: str("Agent id") },
+    schema: {
+      id: str("Agent id"),
+      timeoutMs: optNum(
+        "Wait budget in ms (default 120000). Some very large transcripts never respond; use get_run result instead.",
+      ),
+    },
     handler: async (ctx, a) => {
-      const raw = (await ctx.cursor.conversationV0(a.id as string)) as {
+      const raw = (await ctx.cursor.conversationV0(
+        a.id as string,
+        (a.timeoutMs as number) ?? 120_000,
+      )) as {
         messages?: { type?: string; text?: string }[];
       };
       const messages = raw.messages ?? [];
