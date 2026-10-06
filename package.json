@@ -1,0 +1,42 @@
+{
+  "name": "cursor-cloud-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for triaging Cursor Cloud Agents, Projects, conversations, transcripts, PRs and files. Supports API key and OAuth (browser login) auth, plus opt-in Extended mode for account endpoints.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Bennett Buhner",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BenItBuhner/cursor-cloud-mcp.git"
+  },
+  "bin": {
+    "cursor-cloud-mcp": "./build/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node build/index.js",
+    "http": "node build/http.js",
+    "login": "node build/cli.js login",
+    "logout": "node build/cli.js logout",
+    "status": "node build/cli.js status",
+    "dev": "npx tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "inspector": "npx @modelcontextprotocol/inspector node build/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "dotenv": "^17.2.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
