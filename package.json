@@ -1,13 +1,17 @@
 {
   "name": "cursor-cloud-mcp",
   "version": "0.1.0",
-  "description": "MCP server for triaging Cursor Cloud Agents, Projects, conversations, transcripts, PRs and files. Supports API key and OAuth (browser login) auth, plus opt-in Extended mode for account endpoints.",
+  "description": "MCP server for Cursor Cloud Agents. Companion to Cursor for Android.",
   "type": "module",
   "license": "MIT",
-  "author": "Bennett Buhner",
+  "author": "Bennett Buhner <136861830+BenItBuhner@users.noreply.github.com>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/BenItBuhner/cursor-cloud-mcp.git"
+    "url": "git+https://github.com/BenItBuhner/Cursor-Cloud-MCP.git"
+  },
+  "homepage": "https://github.com/BenItBuhner/Cursor-Cloud-MCP#readme",
+  "bugs": {
+    "url": "https://github.com/BenItBuhner/Cursor-Cloud-MCP/issues"
   },
   "bin": {
     "cursor-cloud-mcp": "./build/index.js"
