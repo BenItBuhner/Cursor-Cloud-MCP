@@ -6,7 +6,7 @@ List agents, read transcripts, follow runs, and send follow-ups from any MCP cli
 
 ## Install
 
-Node 20+.
+Node 22.23.4+.
 
 ```bash
 npm install
